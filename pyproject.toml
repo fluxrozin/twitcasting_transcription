@@ -1,0 +1,20 @@
+[project]
+name = "twitcasting-transcription"
+version = "0.1.0"
+description = "Transcribe Twitcasting recordings to SRT subtitles"
+authors = [
+    { name = "fluxrozin", email = "fluxrozin@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.9",
+    "faster-whisper>=1.1.0",
+    "nvidia-cublas-cu12>=12.4; sys_platform == 'win32'",
+]
+
+[project.scripts]
+twitcasting-transcribe = "twitcasting_transcription.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"

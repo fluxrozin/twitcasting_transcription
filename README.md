@@ -1,0 +1,135 @@
+# twitcasting-transcription
+
+ツイキャス配信の録画ファイルから音声を解析し、SRT 字幕ファイルを生成する CLI ツールです。
+
+## 機能
+
+- 単一の動画ファイル、またはフォルダ内の動画を一括処理
+- 各動画と同じフォルダに `.srt` を出力（1 動画 = 1 SRT）
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) による GPU 高速文字起こし
+- 既に SRT が存在するファイルのスキップ（`--skip-existing`）
+
+## 対応形式
+
+`.mp4` / `.mkv` / `.webm` / `.ts` / `.m4a`
+
+## 必要環境
+
+| 項目        | 要件                                  |
+| ----------- | ------------------------------------- |
+| Python      | 3.12 以上                             |
+| ffmpeg      | PATH から実行可能であること           |
+| GPU（推奨） | CUDA 対応 GPU（例: RTX 5070 Ti 16GB） |
+
+### ffmpeg のインストール
+
+```powershell
+winget install ffmpeg
+```
+
+インストール後、ターミナルを開き直して `ffmpeg -version` が通ることを確認してください。
+
+## セットアップ
+
+[uv](https://docs.astral.sh/uv/) を使う場合:
+
+```powershell
+git clone <repository-url>
+cd twitcasting_transcription
+uv sync
+```
+
+## 使い方
+
+### 単一ファイル
+
+```powershell
+uv run twitcasting-transcribe recording.mp4
+```
+
+`recording.srt` が同じフォルダに生成されます。
+
+### フォルダ一括処理
+
+```powershell
+uv run twitcasting-transcribe C:\Twitcasting\recordings\
+```
+
+フォルダ内の動画ファイルを再帰的に検索し、それぞれに個別の SRT を出力します。
+
+```
+recordings/
+├── part1.mp4  →  part1.srt
+├── part2.mp4  →  part2.srt
+└── sub/
+    └── extra.mp4  →  extra.srt
+```
+
+### 既存 SRT をスキップ
+
+```powershell
+uv run twitcasting-transcribe C:\recordings\ --skip-existing
+```
+
+## オプション
+
+| オプション        | 短縮 | デフォルト | 説明                                            |
+| ----------------- | ---- | ---------- | ----------------------------------------------- |
+| `--model`         | `-m` | `large-v3` | Whisper モデル名                                |
+| `--language`      | `-l` | `ja`       | 認識言語                                        |
+| `--device`        | `-d` | `cuda`     | 推論デバイス（`cuda` / `cpu`）                  |
+| `--compute-type`  |      | `float16`  | 量子化タイプ（`float16` / `int8_float16` など） |
+| `--skip-existing` |      | off        | 既に `.srt` がある動画をスキップ                |
+
+### 使用例
+
+```powershell
+# GPU + large-v3（デフォルト）
+uv run twitcasting-transcribe recording.mp4
+
+# CPU で実行
+uv run twitcasting-transcribe recording.mp4 --device cpu
+
+# より軽いモデルで試す
+uv run twitcasting-transcribe recording.mp4 --model medium
+```
+
+## 処理の流れ
+
+1. 指定パスから動画ファイルを列挙
+2. ffmpeg で 16kHz モノラル WAV に音声抽出
+3. faster-whisper で文字起こし
+4. 動画と同じディレクトリに SRT を書き出し
+
+初回実行時は Whisper モデル（デフォルト: `large-v3`）のダウンロードが行われます。
+
+## パフォーマンスの目安
+
+RTX 5070 Ti 16GB + `large-v3` + `float16` の場合（参考値）:
+
+| 配信の長さ | 処理時間の目安 |
+| ---------- | -------------- |
+| 1 時間     | 約 5〜15 分    |
+| 3 時間     | 約 15〜45 分   |
+
+無音区間が多い配信では VAD フィルタにより、さらに短縮されることがあります。
+
+## トラブルシューティング
+
+### `ffmpeg not found`
+
+ffmpeg がインストールされていないか、PATH に含まれていません。インストール後にターミナルを再起動してください。
+
+### CUDA エラー（`cublas64_12.dll is not found`）
+
+Windows では GPU 利用時に CUDA 12 の cuBLAS が必要です。`uv sync` 時に `nvidia-cublas-cu12` が自動インストールされ、アプリ起動時に DLL パスを登録します。
+
+それでも解決しない場合:
+
+- NVIDIA ドライバが最新か確認してください
+- [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) をインストールし、再起動してください
+- 一時的な回避策として `--device cpu` で実行できます（処理は大幅に遅くなります）
+
+### メモリ不足
+
+`--model medium` や `--compute-type int8_float16` を試してください。
