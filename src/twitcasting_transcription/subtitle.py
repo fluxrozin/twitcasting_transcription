@@ -7,6 +7,7 @@ class SubtitleSegment:
     start: float
     end: float
     text: str
+    speaker: str | None = None
 
 
 def format_srt_time(seconds: float) -> str:
@@ -24,7 +25,10 @@ def write_srt(segments: list[SubtitleSegment], output_path: Path) -> None:
         lines.append(
             f"{format_srt_time(segment.start)} --> {format_srt_time(segment.end)}"
         )
-        lines.append(segment.text.strip())
+        text = segment.text.strip()
+        if segment.speaker:
+            text = f"[{segment.speaker}] {text}"
+        lines.append(text)
         lines.append("")
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
