@@ -54,11 +54,19 @@ def load_diarization_pipeline(
     try:
         pipeline = Pipeline.from_pretrained(model_name, token=token)
     except Exception as exc:
+        message = f"Could not load the diarization model {model_name}: {exc}"
+        if model_name == DEFAULT_DIARIZATION_MODEL:
+            message += (
+                " Accept its conditions at "
+                "https://huggingface.co/pyannote/speaker-diarization-community-1 "
+                "and set the HF_TOKEN environment variable."
+            )
+        raise RuntimeError(message) from exc
+    if pipeline is None:
         raise RuntimeError(
-            "Could not load the diarization model. Accept its conditions at "
-            "https://huggingface.co/pyannote/speaker-diarization-community-1 "
-            "and set the HF_TOKEN environment variable."
-        ) from exc
+            f"Could not load the diarization model {model_name}. "
+            "Accept its conditions on Hugging Face and set the HF_TOKEN environment variable."
+        )
 
     if device == "cuda":
         pipeline.to(torch.device("cuda"))
@@ -90,6 +98,15 @@ def _load_pcm_wav(audio_path: Path) -> dict[str, Any]:
     return {"waveform": waveform, "sample_rate": sample_rate}
 
 
+def _speaker_annotation(output: Any) -> Any:
+    annotation = getattr(output, "exclusive_speaker_diarization", None)
+    if annotation is None:
+        annotation = getattr(output, "speaker_diarization", None)
+    if annotation is None:
+        return output
+    return annotation
+
+
 def diarize(
     pipeline: Any,
     audio_path: Path,
@@ -114,9 +131,7 @@ def diarize(
             category=UserWarning,
         )
         output = pipeline(_load_pcm_wav(audio_path), **kwargs)
-    annotation = getattr(output, "exclusive_speaker_diarization", None)
-    if annotation is None:
-        annotation = output.speaker_diarization
+    annotation = _speaker_annotation(output)
 
     return [
         SpeakerTurn(start=turn.start, end=turn.end, speaker=speaker)

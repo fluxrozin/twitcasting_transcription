@@ -72,7 +72,12 @@ def main(
             "--min-speakers cannot be greater than --max-speakers."
         )
 
-    videos = collect_videos(path)
+    try:
+        videos = collect_videos(path)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
     targets = [
         video
         for video in videos
@@ -88,12 +93,21 @@ def main(
         typer.echo("No files to process.")
         raise typer.Exit(code=0)
 
+    if device == "cpu" and compute_type in {"float16", "int8_float16"}:
+        typer.echo(f"{compute_type} is not supported on CPU. Using int8.")
+        compute_type = "int8"
+
     typer.echo(f"Loading model: {model} ({device}, {compute_type})")
-    whisper_model = load_model(
-        model,
-        device=device,
-        compute_type=compute_type,
-    )
+    try:
+        whisper_model = load_model(
+            model,
+            device=device,
+            compute_type=compute_type,
+        )
+    except Exception as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
     diarization_pipeline = None
     if diarization:
         typer.echo(f"Loading diarization model: {diarization_model} ({device})")
@@ -103,37 +117,58 @@ def main(
                 token=hf_token,
                 device=device,
             )
-        except RuntimeError as exc:
+        except Exception as exc:
             typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from exc
 
+    wrote = 0
+    empty = 0
+    failed = 0
     total = len(targets)
     for index, video in enumerate(targets, start=1):
         srt_path = output_srt_path(video)
         typer.echo(f"[{index}/{total}] {video.name}")
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / f"{video.stem}.wav"
-            typer.echo("  Extracting audio...")
-            extract_audio(video, wav_path)
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                wav_path = Path(temp_dir) / f"{video.stem}.wav"
+                typer.echo("  Extracting audio...")
+                extract_audio(video, wav_path)
 
-            typer.echo("  Transcribing...")
-            segments = transcribe(whisper_model, wav_path, language=language)
+                typer.echo("  Transcribing...")
+                segments = transcribe(whisper_model, wav_path, language=language)
 
-            if diarization_pipeline is not None:
-                typer.echo("  Identifying speakers...")
-                turns = diarize(
-                    diarization_pipeline,
-                    wav_path,
-                    min_speakers=min_speakers,
-                    max_speakers=max_speakers,
-                )
-                segments = assign_speakers(segments, turns)
+                if diarization_pipeline is not None:
+                    typer.echo("  Identifying speakers...")
+                    turns = diarize(
+                        diarization_pipeline,
+                        wav_path,
+                        min_speakers=min_speakers,
+                        max_speakers=max_speakers,
+                    )
+                    segments = assign_speakers(segments, turns)
 
-        write_srt(segments, srt_path)
+            cue_count = write_srt(segments, srt_path)
+        except Exception as exc:
+            failed += 1
+            typer.secho(f"  Error: {exc}", fg=typer.colors.RED, err=True)
+            continue
+
+        if cue_count == 0:
+            empty += 1
+            typer.echo("  No speech detected. SRT was not written.")
+            continue
+
+        wrote += 1
         typer.echo(f"  Wrote {srt_path}")
 
-    typer.echo(f"Done. Processed {total} file(s).")
+    summary = f"Done. Wrote {wrote} file(s)."
+    if empty:
+        summary += f" No speech in {empty} file(s)."
+    if failed:
+        typer.secho(f"{summary} Failed {failed}.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    typer.echo(summary)
 
 
 def app() -> None:

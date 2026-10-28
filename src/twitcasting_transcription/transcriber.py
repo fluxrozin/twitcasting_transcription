@@ -49,6 +49,31 @@ from faster_whisper import WhisperModel
 
 from twitcasting_transcription.subtitle import SubtitleSegment
 
+# Same limits faster-whisper uses before it resamples a window.
+_MAX_COMPRESSION_RATIO = 2.4
+_MIN_AVG_LOGPROB = -1.0
+_MIN_REPEAT_CHARS = 12
+
+
+def _stable_segments(segments) -> list[SubtitleSegment]:
+    """Drop repetitive, low-confidence, and long repeated cues."""
+    kept: list[SubtitleSegment] = []
+    previous: str | None = None
+    for segment in segments:
+        text = segment.text.strip()
+        if not text:
+            continue
+        if (
+            segment.compression_ratio > _MAX_COMPRESSION_RATIO
+            or segment.avg_logprob < _MIN_AVG_LOGPROB
+        ):
+            continue
+        if previous == text and len(text) >= _MIN_REPEAT_CHARS:
+            continue
+        previous = text
+        kept.append(SubtitleSegment(start=segment.start, end=segment.end, text=text))
+    return kept
+
 
 def load_model(
     model_name: str,
@@ -77,8 +102,7 @@ def transcribe(
         str(audio_path),
         language=language,
         vad_filter=True,
+        temperature=0.0,
+        condition_on_previous_text=False,
     )
-    return [
-        SubtitleSegment(start=segment.start, end=segment.end, text=segment.text)
-        for segment in segments
-    ]
+    return _stable_segments(segments)
