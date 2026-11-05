@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".ts", ".m4a"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".ts", ".m4a", ".mov"}
 
 
 def collect_videos(path: Path) -> list[Path]:
